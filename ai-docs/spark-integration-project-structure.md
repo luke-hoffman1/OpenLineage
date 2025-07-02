@@ -50,7 +50,7 @@ The primary responsibility of these modules is to extract lineage information fr
 
 ---
 
-## Support and Deployment Modules 🛠️
+## Support and Deployment Modules
 
 These modules provide the necessary tooling for testing, packaging, and deploying the Spark integration.
 
