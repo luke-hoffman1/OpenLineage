@@ -6,7 +6,7 @@ The `DataSourceV2RelationDatasetExtractor` is a utility class in the OpenLineage
 
 ## Context in OpenLineage Architecture
 
-As described in the [architecture overview](part1-architecture-overview.md), OpenLineage captures lineage information by intercepting Spark events and traversing the logical plan of Spark SQL queries. The [logical plan parsing](part3-logical-plan-parsing.md) document explains that OpenLineage uses two main types of extractors:
+As described in the [architecture overview](spark/concepts/spark-agent-overview.md), OpenLineage captures lineage information by intercepting Spark events and traversing the logical plan of Spark SQL queries. The [logical plan parsing](part3-logical-plan-parsing.md) document explains that OpenLineage uses two main types of extractors:
 
 1. **QueryPlanVisitors**: Local scope, operate on a single node in the LogicalPlan
 2. **DatasetBuilders**: Global scope, operate on the entire SparkListenerEvent
