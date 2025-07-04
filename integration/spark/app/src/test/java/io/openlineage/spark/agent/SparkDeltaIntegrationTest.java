@@ -522,4 +522,89 @@ class SparkDeltaIntegrationTest {
         .filter(t -> spark.catalog().tableExists(t))
         .forEach(t -> spark.sql("DROP TABLE IF EXISTS " + t));
   }
+
+  @Test
+  void testDeltaMergeWithTimestamp() {
+    // Clear any existing tables
+    spark.sql("DROP DATABASE IF EXISTS lz CASCADE");
+    spark.sql("DROP DATABASE IF EXISTS bronze CASCADE");
+    spark.sql("CREATE DATABASE lz");
+    spark.sql("CREATE DATABASE bronze");
+
+    // Create source and target DataFrames
+    Dataset<Row> sourceDF = spark
+        .createDataFrame(
+            ImmutableList.of(
+                RowFactory.create(1, "A"),
+                RowFactory.create(2, "B"),
+                RowFactory.create(3, "C")),
+            new StructType(
+                new StructField[] {
+                    new StructField("id", IntegerType$.MODULE$, false, Metadata.empty()),
+                    new StructField("value", StringType$.MODULE$, false, Metadata.empty())
+                }))
+        .withColumn("__load_ts", org.apache.spark.sql.functions.lit("2022-01-01 00:02:00").cast("timestamp"));
+
+    Dataset<Row> targetDF = spark
+        .createDataFrame(
+            ImmutableList.of(
+                RowFactory.create(1, "A_old"),
+                RowFactory.create(2, "B_old"),
+                RowFactory.create(4, "D")),
+            new StructType(
+                new StructField[] {
+                    new StructField("id", IntegerType$.MODULE$, false, Metadata.empty()),
+                    new StructField("value", StringType$.MODULE$, false, Metadata.empty())
+                }))
+        .withColumn("__load_ts", org.apache.spark.sql.functions.lit("2022-01-01 00:01:00").cast("timestamp"));
+
+    // Write to Delta tables
+    sourceDF.write().format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable("lz.source_table");
+    targetDF.write().format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable("bronze.target_table");
+
+    // Print initial target table
+    System.out.println("Initial target table:");
+    spark.read().table("bronze.target_table").show(false);
+
+    // Add a test column to source table
+    spark.read().table("lz.source_table")
+        .withColumn("test", org.apache.spark.sql.functions.lit("a"))
+        .createOrReplaceTempView("source_with_test");
+
+    // Perform merge operation using SQL
+    spark.sql(
+        "MERGE INTO bronze.target_table target USING source_with_test source ON target.id = source.id " +
+        "WHEN MATCHED THEN UPDATE SET * " +
+        "WHEN NOT MATCHED THEN INSERT *");
+
+    // Print target table after merge
+    System.out.println("\nTarget table after merge:");
+    spark.read().table("bronze.target_table").show(false);
+
+    // Verify events
+    verifyEvents(
+        mockServer,
+        "deltaMergeWithTimestampStart.json",
+        "deltaMergeWithTimestampComplete.json");
+
+    // Verify the merge results
+    Dataset<Row> resultDF = spark.read().table("bronze.target_table");
+
+    // Check that we have 4 rows in the result
+    assertThat(resultDF.count()).isEqualTo(4);
+
+    // Check that the merge updated the existing rows and inserted the new one
+    assertThat(resultDF.filter("id = 1 AND value = 'A'").count()).isEqualTo(1);
+    assertThat(resultDF.filter("id = 2 AND value = 'B'").count()).isEqualTo(1);
+    assertThat(resultDF.filter("id = 3 AND value = 'C'").count()).isEqualTo(1);
+    assertThat(resultDF.filter("id = 4 AND value = 'D'").count()).isEqualTo(1);
+
+    // Check that the test column was added
+    assertThat(resultDF.filter("id = 1 AND test = 'a'").count()).isEqualTo(1);
+    assertThat(resultDF.filter("id = 2 AND test = 'a'").count()).isEqualTo(1);
+    assertThat(resultDF.filter("id = 3 AND test = 'a'").count()).isEqualTo(1);
+
+    // The row with id=4 should not have the test column (or it should be null)
+    assertThat(resultDF.filter("id = 4 AND test IS NULL").count()).isEqualTo(1);
+  }
 }
