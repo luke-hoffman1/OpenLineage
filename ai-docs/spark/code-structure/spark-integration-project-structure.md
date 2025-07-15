@@ -21,7 +21,7 @@ This module contains the version-agnostic code that serves as the foundation for
     * `facets/`: Contains builders for all the standard OpenLineage `facets` (e.g., `DataSourceDatasetFacet`, `JobTypeJobFacet`) that enrich the core event data.
     * `models/`: Internal data models that represent Spark entities and job metadata.
     * `filters/`: Provides filtering logic to control which Spark events are processed, allowing for the exclusion of irrelevant or noisy events.
-    * `util/`: A collection of common utility classes used throughout the integration.
+    * `util/`: A collection of common utility classes used throughout the integration. [Examples](utils.md)
 
 ### `integration/spark/app`
 
