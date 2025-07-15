@@ -10,7 +10,7 @@ from openlineage.client.event_v2 import InputDataset, Job, OutputDataset, Run, R
 from openlineage.common.provider.dbt.facets import ParentRunMetadata
 from openlineage.common.utils import get_from_nullable_chain, parse_single_arg
 
-__version__ = "1.35.0"
+__version__ = "1.36.0"
 PRODUCER = f"https://github.com/OpenLineage/OpenLineage/tree/{__version__}/integration/dbt"
 
 # for which command structured logs consumption is implemented
@@ -101,6 +101,14 @@ def get_dbt_log_path(command: List[str]) -> str:
     from_env_var = os.getenv("DBT_LOG_PATH")
     log_dirname = from_command or from_env_var or default_log_dirname
     return os.path.join(log_dirname, "dbt.log")
+
+
+def is_random_logfile(command: List[str]) -> bool:
+    from_command = parse_single_arg(command, ["--log-path"], default=None)
+    from_env_var = os.getenv("DBT_LOG_PATH")
+    if from_env_var or from_command:
+        return False
+    return True
 
 
 def generate_random_log_file_name() -> str:

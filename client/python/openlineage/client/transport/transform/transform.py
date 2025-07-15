@@ -142,3 +142,6 @@ class TransformTransport(Transport):
             return None
         log.debug("Event after transformation: %s", Serde.to_json(transformed))
         return self.transport.emit(transformed)
+
+    def close(self, timeout: float = -1) -> bool:
+        return self.transport.close(timeout)

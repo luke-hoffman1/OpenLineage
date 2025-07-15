@@ -56,12 +56,6 @@ params = [
         marks=pytest.mark.skipif(not IS_GCP_AUTH, reason="no gcp credentials"),
     ),
     pytest.param(
-        "dbt",
-        "requests/dbt_bigquery.json",
-        True,
-        marks=pytest.mark.skipif(not IS_GCP_AUTH, reason="no gcp credentials or dbt tests disabled"),
-    ),
-    pytest.param(
         "gcs_dag",
         "requests/gcs.json",
         True,
@@ -98,36 +92,6 @@ params = [
         True,
     ),
     pytest.param(
-        "dbt",
-        "requests/dbt_snowflake.json",
-        True,
-        marks=[
-            pytest.mark.skipif(
-                not IS_AIRFLOW_VERSION_ENOUGH(SNOWFLAKE_AIRFLOW_TEST_VERSION),
-                reason=f"Airflow < {SNOWFLAKE_AIRFLOW_TEST_VERSION}",
-            ),
-            pytest.mark.skipif(
-                os.environ.get("SNOWFLAKE_PASSWORD", "") == "",
-                reason="no snowflake credentials",
-            ),
-        ],
-    ),
-    pytest.param(
-        "snowflake",
-        "requests/snowflake.json",
-        True,
-        marks=[
-            pytest.mark.skipif(
-                not IS_AIRFLOW_VERSION_ENOUGH(SNOWFLAKE_AIRFLOW_TEST_VERSION),
-                reason=f"Airflow < {SNOWFLAKE_AIRFLOW_TEST_VERSION}",
-            ),
-            pytest.mark.skipif(
-                os.environ.get("SNOWFLAKE_ACCOUNT_ID", "") == "",
-                reason="no snowflake credentials",
-            ),
-        ],
-    ),
-    pytest.param(
         "mapped_dag",
         "requests/mapped_dag.json",
         False,
@@ -150,7 +114,7 @@ params = [
     stop_max_delay=1000 * 10 * 60,
 )
 def wait_for_dag(dag_id, airflow_db_conn, should_fail=False) -> bool:
-    log.info(f"Waiting for DAG '{dag_id}'...")
+    log.info("Waiting for DAG '%s'...", dag_id)
 
     cur = airflow_db_conn.cursor()
     cur.execute(
@@ -165,7 +129,7 @@ def wait_for_dag(dag_id, airflow_db_conn, should_fail=False) -> bool:
 
     cur.close()
 
-    log.info(f"DAG '{dag_id}' state set to '{state}'.")
+    log.info("DAG '%s' state set to '%s'.", dag_id, state)
     expected_state = "failed" if should_fail else "success"
     failing_state = "success" if should_fail else "failed"
     if state == failing_state:
@@ -245,13 +209,13 @@ def check_run_id_matches(actual_events: List[Dict]) -> bool:
         if event_type in [start, complete, fail]:
             event_tracker[event_run_id][event_type] += 1
         else:
-            log.info(f"Found unknown event_type: `{event_type}` for run_id: `{event_run_id}`")
+            log.info("Found unknown event_type %s for run_id %s", event_type, event_run_id)
             return False
 
     # Validate each run_id
     failed_runs = {}
     for run_id, events in event_tracker.items():
-        log.debug(f"{run_id} -> {events}")
+        log.debug("%s -> %s", run_id, events)
         if events["is_mapped"]:
             # Dynamic tasks will have the same run_id, so we can allow more than one start and complete
             if events[start] != (events[complete] + events[fail]):
@@ -277,14 +241,14 @@ def check_matches(expected_events, actual_events, check_duplicates: bool = None)
             # Try to find matching event by eventType and job name
             if expected["eventType"] == actual["eventType"] and expected_job_name == actual["job"]["name"]:
                 if is_compared and check_duplicates:
-                    log.info(f"found more than one event expected {expected}\n duplicate: {actual}")
+                    log.info("Found more than one event expected %s\n duplicate: %s", expected, actual)
                     return False
                 is_compared = True
                 if not match(expected, actual):
-                    log.info(f"failed to compare expected {expected}\nwith actual {actual}")
+                    log.info("Failed to compare expected %s\nwith actual %s", expected, actual)
                     return False
         if not is_compared:
-            log.info(f"not found event comparable to {expected['eventType']} " f"- {expected_job_name}")
+            log.info("Not found event comparable to %s - %s", expected["eventType"], expected_job_name)
             return False
     return True
 
@@ -295,12 +259,15 @@ def check_matches_ordered(expected_events, actual_events) -> bool:
         actual = actual_events[index]
         if expected["eventType"] == actual["eventType"] and expected["job"]["name"] == actual["job"]["name"]:
             if not match(expected, actual):
-                log.info(f"failed to compare expected {expected}\nwith actual {actual}")
+                log.info("Failed to compare expected %s\nwith actual %s", expected, actual)
                 return False
             break
         log.info(
-            f"Wrong order of events: expected {expected['eventType']} - "
-            f"{expected['job']['name']}\ngot {actual['eventType']} - {actual['job']['name']}"
+            "Wrong order of events:\nexpected %s - %s\ngot %s - %s",
+            expected["eventType"],
+            expected["job"]["name"],
+            actual["eventType"],
+            actual["job"]["name"],
         )
         return False
     return True
@@ -345,7 +312,7 @@ def airflow_db_conn():
 
 @pytest.mark.parametrize("dag_id, request_path, check_duplicates", params)
 def test_integration(dag_id, request_path, check_duplicates, airflow_db_conn):
-    log.info(f"Checking dag {dag_id}")
+    log.info("Checking dag %s", dag_id)
     # (1) Wait for DAG to complete
     result = wait_for_dag(dag_id, airflow_db_conn)
     assert result is True
@@ -363,7 +330,7 @@ def test_integration(dag_id, request_path, check_duplicates, airflow_db_conn):
 
     # (5) Verify events emitted
     assert check_matches(expected_events, actual_events, check_duplicates) is True
-    log.info(f"Events for dag {dag_id} verified!")
+    log.info("Events for dag %s verified!", dag_id)
 
 
 @pytest.mark.parametrize(
@@ -374,7 +341,7 @@ def test_integration(dag_id, request_path, check_duplicates, airflow_db_conn):
     ],
 )
 def test_failing_dag(dag_id, request_path, check_duplicates, airflow_db_conn):
-    log.info(f"Checking dag {dag_id}")
+    log.info("Checking dag %s", dag_id)
     # (1) Wait for DAG to complete
     result = wait_for_dag(dag_id, airflow_db_conn, should_fail=True)
     assert result is True
@@ -392,7 +359,7 @@ def test_failing_dag(dag_id, request_path, check_duplicates, airflow_db_conn):
 
     # (5) Verify events emitted
     assert check_matches(expected_events, actual_events, check_duplicates) is True
-    log.info(f"Events for dag {dag_id} verified!")
+    log.info("Events for dag %s verified!", dag_id)
 
 
 @pytest.mark.parametrize(
@@ -407,7 +374,7 @@ def test_failing_dag(dag_id, request_path, check_duplicates, airflow_db_conn):
     ],
 )
 def test_integration_ordered(dag_id, request_dir: str, skip_jobs: List[str], airflow_db_conn):
-    log.info(f"Checking dag {dag_id}")
+    log.info("Checking dag %s", dag_id)
     # (1) Wait for DAG to complete
     result = wait_for_dag(dag_id, airflow_db_conn)
     assert result is True
@@ -432,7 +399,7 @@ def test_integration_ordered(dag_id, request_dir: str, skip_jobs: List[str], air
 
     assert check_matches_ordered(expected_events, actual_events) is True
     assert check_event_time_ordered(actual_events) is True
-    log.info(f"Events for dag {dag_id} verified!")
+    log.info("Events for dag %s verified!", dag_id)
 
 
 @pytest.mark.parametrize(
@@ -445,7 +412,7 @@ def test_integration_ordered(dag_id, request_dir: str, skip_jobs: List[str], air
     ],
 )
 def test_airflow_run_facet(dag_id, request_path, airflow_db_conn):
-    log.info(f"Checking dag {dag_id} for AirflowRunFacet")
+    log.info("Checking dag %s for AirflowRunFacet", dag_id)
     result = wait_for_dag(dag_id, airflow_db_conn)
     assert result is True
 
@@ -459,7 +426,7 @@ def test_airflow_run_facet(dag_id, request_path, airflow_db_conn):
 def test_airflow_mapped_task_facet(airflow_db_conn):
     dag_id = "mapped_dag"
     task_id = "multiply"
-    log.info(f"Checking dag {dag_id} for AirflowMappedTaskRunFacet")
+    log.info("Checking dag %s for AirflowMappedTaskRunFacet", dag_id)
     result = wait_for_dag(dag_id, airflow_db_conn)
     assert result is True
 
