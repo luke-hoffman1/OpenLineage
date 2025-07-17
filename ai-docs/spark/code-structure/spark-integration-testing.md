@@ -1,401 +1,235 @@
 # OpenLineage Spark Integration: Testing Framework
 
-This document provides a comprehensive overview of the testing framework used in the OpenLineage Spark integration. It covers the test directory structure, test setup and execution patterns, dependency management for testing, and provides guidance for creating new tests.
+This document provides a comprehensive yet accessible overview of the testing framework used in the OpenLineage Spark integration. It outlines test organization, setup, execution patterns, dependency management, and best practices for writing new tests.
 
-## Test Directory Structure
+---
 
-The OpenLineage Spark integration tests are primarily located in the `integration/spark/app/src/test/java/io/openlineage/spark/agent` directory. The tests are organized into several categories:
+## 📘 Table of Contents
 
-### Test Categories
+1. [Overview](#overview)
+2. [Test Directory Structure](#test-directory-structure)
+3. [Test Setup and Execution](#test-setup-and-execution)
+4. [Dependency Management for Testing](#dependency-management-for-testing)
+5. [Creating New Tests](#creating-new-tests)
+6. [Conclusion](#conclusion)
 
-1. **Integration Tests**: Tests that verify the integration with specific technologies or services
-   - `GoogleCloudIntegrationTest.java`: Tests integration with Google Cloud (BigQuery, GCS)
-   - `SparkDeltaIntegrationTest.java`: Tests integration with Delta Lake
-   - `SparkIcebergIntegrationTest.java`: Tests integration with Apache Iceberg
-   - `EmrIntegrationTest.java`: Tests integration with AWS EMR
-   - `DatabricksIntegrationTest.java`: Tests integration with Databricks
+---
 
-2. **Lifecycle Plan Visitor Tests**: Tests for specific plan visitors that extract lineage from Spark's logical plans
-   - `AlterTableAddColumnsCommandVisitorTest.java`
-   - `CreateTableCommandVisitorTest.java`
-   - `DropTableCommandVisitorTest.java`
-   - `JDBCRelationVisitorTest.java`
-   - And many others for different Spark operations
+## 🧭 Overview
 
-3. **Column-Level Lineage Tests**: Tests for column-level lineage extraction
-   - `ColumnLevelLineageDeltaTest.java`
-   - `ColumnLevelLineageHiveTest.java`
-   - `ColumnLevelLineageIcebergTest.java`
-   - `ColumnLineageWithTransformationTypesTest.java`
+This guide is intended for **contributors and developers** working on or extending the OpenLineage Spark integration test suite. Whether you're adding new functionality, fixing bugs, or reviewing changes, this guide explains how to understand, run, and write tests effectively.
 
-4. **Core Component Tests**: Tests for core components of the OpenLineage Spark agent
-   - `OpenLineageSparkListenerTest.java`: Tests the main Spark listener
-   - `ArgumentParserTest.java`: Tests argument parsing
-   - `SparkEventFilterTest.java`: Tests event filtering
+---
 
-5. **Utility Classes**: Helper classes for testing
-   - `SparkTestUtils.java`: Common utilities for Spark tests
-   - `MockServerUtils.java`: Utilities for working with the mock server
-   - `RunEventVerifier.java`: Utilities for verifying OpenLineage events
+## 🗂 Test Directory Structure
 
-### Base Test Classes
+Tests live in:
+`integration/spark/app/src/test/java/io/openlineage/spark/agent`
 
-Several base classes provide common functionality for tests:
+They are categorized as follows:
 
-- `SparkContainerIntegrationTest.java`: Base class for integration tests using Testcontainers
-- `ConfigurableIntegrationTest.java`: Base class for tests that can be configured externally
+### ✅ Test Categories
 
-## Test Setup and Execution
+| Category                    | Description                                  | Example Classes                                                           |
+| --------------------------- | -------------------------------------------- | ------------------------------------------------------------------------- |
+| **Integration Tests**       | Test integrations with external systems      | `GoogleCloudIntegrationTest`, `DatabricksIntegrationTest`                 |
+| **Lifecycle Plan Visitors** | Validate lineage extraction from Spark plans | `CreateTableCommandVisitorTest`, `JDBCRelationVisitorTest`                |
+| **Column-Level Lineage**    | Validate column-level tracking               | `ColumnLevelLineageDeltaTest`, `ColumnLineageWithTransformationTypesTest` |
+| **Core Components**         | Unit tests for Spark agent logic             | `OpenLineageSparkListenerTest`, `ArgumentParserTest`                      |
+| **Utilities**               | Shared helpers and test utilities            | `SparkTestUtils`, `MockServerUtils`, `RunEventVerifier`                   |
 
-### Test Framework
+### 🧱 Base Test Classes
 
-The OpenLineage Spark integration uses JUnit 5 (Jupiter) as its primary testing framework, along with several supporting libraries:
+* `SparkContainerIntegrationTest`: Sets up containerized Spark environments
+* `ConfigurableIntegrationTest`: Allows runtime test customization
 
-- **JUnit 5**: Core testing framework
-- **AssertJ**: Fluent assertions library
-- **Mockito**: Mocking framework
-- **Testcontainers**: Library for creating Docker containers for tests
-- **Awaitility**: Library for testing asynchronous operations
+---
 
-### Test Execution Patterns
+## ⚙️ Test Setup and Execution
 
-Tests in the OpenLineage Spark integration follow several common patterns:
+### 📦 Frameworks & Libraries
 
-1. **Setup and Teardown**:
-   - `@BeforeAll`: Initialize shared resources (e.g., mock server, Spark session)
-   - `@BeforeEach`: Reset state before each test
-   - `@AfterEach`: Clean up after each test
-   - `@AfterAll`: Clean up shared resources
+* **JUnit 5**: Core testing platform
+* **AssertJ**: Fluent assertions
+* **Mockito**: Mocking
+* **Testcontainers**: Container orchestration
+* **Awaitility**: Wait for async behavior
 
-2. **Conditional Test Execution**:
-   - `@EnabledIfSystemProperty`: Run tests only if a specific system property matches
-   - `@EnabledIfEnvironmentVariable`: Run tests only if a specific environment variable is set
-   - `@Tag`: Categorize tests for selective execution
+### 🧪 Common Test Patterns
 
-3. **Containerized Testing**:
-   - Many tests use Testcontainers to create isolated environments
-   - Containers for Kafka, PostgreSQL, MockServer, etc.
+* **Setup / Teardown**:
 
-4. **Event Verification**:
-   - Tests emit OpenLineage events to a mock server
-   - Events are captured and verified against expected patterns
-   - `MockServerUtils.verifyEvents()` is commonly used to compare events
+  ```java
+  @BeforeAll / @BeforeEach
+  @AfterEach / @AfterAll
+  ```
 
-### Example: GoogleCloudIntegrationTest
+* **Conditional Execution**:
 
-The `GoogleCloudIntegrationTest` class provides a good example of how integration tests are structured:
+   * `@EnabledIfSystemProperty`
+   * `@EnabledIfEnvironmentVariable`
+   * `@Tag`
 
-```java
-@Tag("integration-test")
-@Tag("google-cloud")
-@Slf4j
-@EnabledIfEnvironmentVariable(named = "CI", matches = "true")
-class GoogleCloudIntegrationTest {
-    // Constants and configuration
-    private static final String PROJECT_ID = /* ... */;
-    private static final String BUCKET_NAME = /* ... */;
-    private static final URI BUCKET_URI = /* ... */;
-    
-    // Test setup
-    @BeforeAll
-    public static void beforeAll() {
-        Spark4CompatUtils.cleanupAnyExistingSession();
-        mockServer = new ClientAndServer(MOCKSERVER_PORT);
-        MockServerUtils.configureStandardExpectation(mockServer);
-    }
-    
-    @BeforeEach
-    public void beforeEach() {
-        MockServerUtils.clearRequests(mockServer);
-        spark = SparkSession.builder()
-            // Configure Spark session for Google Cloud
-            .config("spark.openlineage.transport.type", "http")
-            .config("spark.openlineage.transport.url", "http://localhost:" + mockServer.getPort() + "/api/v1/lineage")
-            // ... more configuration ...
-            .getOrCreate();
-    }
-    
-    // Test methods
-    @Test
-    @EnabledIfSystemProperty(named = SPARK_VERSION_PROPERTY, matches = SPARK_3_3)
-    void testReadAndWriteFromBigquery() {
-        // Setup test data
-        String source_table = /* ... */;
-        String target_table = /* ... */;
-        
-        // Execute Spark operations
-        Dataset<Row> dataset = getTestDataset();
-        dataset.write().format("bigquery").option("table", source_table).mode("overwrite").save();
-        Dataset<Row> first = spark.read().format("bigquery").option("table", source_table).load();
-        first.write().format("bigquery").option("table", target_table).mode("overwrite").save();
-        
-        // Verify OpenLineage events
-        HashMap<String, String> replacements = new HashMap<>();
-        // ... setup replacements ...
-        
-        List<RunEvent> events = MockServerUtils.getEventsEmitted(mockServer);
-        assertThat(events).isNotEmpty();
-        
-        // Verify specific event patterns
-        verifyEvents(mockServer, replacements, "pysparkBigquerySaveStart.json", "pysparkBigquerySaveEnd.json");
-        
-        // Additional assertions
-        assertThat(events.stream()
-            .map(event -> event.getJob().getName())
-            .filter(name -> name.contains("spark-bigquery-local"))
-            .distinct()
-            .collect(Collectors.toList()))
-        .isEmpty();
-    }
-    
-    // Helper methods
-    private static Dataset<Row> getTestDataset() {
-        // Create test data
-    }
-}
-```
+* **MockServer Event Verification**:
 
-Key aspects of this test:
+  ```java
+  List<RunEvent> events = MockServerUtils.getEventsEmitted(mockServer);
+  verifyEvents(mockServer, replacements, "expectedStart.json", "expectedEnd.json");
+  ```
 
-1. **Tags**: The test is tagged as an integration test and specifically for Google Cloud
-2. **Conditional Execution**: Only runs in CI environments and with specific Spark versions
-3. **Setup**: Creates a mock server and configures a Spark session with Google Cloud settings
-4. **Test Pattern**: 
-   - Sets up test data
-   - Executes Spark operations (read/write to BigQuery)
-   - Captures and verifies OpenLineage events
-5. **Verification**: Uses assertions to check that events match expected patterns
+* **Containerized Tests**:
+  Uses Kafka, PostgreSQL, GCS, etc., through Testcontainers
 
-## Dependency Management for Testing
+---
 
-The OpenLineage Spark integration uses a sophisticated dependency management system to handle testing across different Spark and Scala versions.
+### 🔍 Example: `GoogleCloudIntegrationTest`
 
-### Build Configuration
+Key elements:
 
-The `build.gradle` file in the `integration/spark/app` module contains the configuration for test dependencies:
+* **Conditional execution**:
+
+  ```java
+  @Tag("google-cloud")
+  @EnabledIfEnvironmentVariable(named = "CI", matches = "true")
+  ```
+
+* **Spark session configuration**:
+
+  ```java
+  spark = SparkSession.builder()
+      .config("spark.openlineage.transport.url", "http://localhost:" + mockServer.getPort())
+      .getOrCreate();
+  ```
+
+* **Event assertion**:
+
+  ```java
+  assertThat(events).isNotEmpty();
+  ```
+
+> ✅ **Best Practices**
+>
+> * Use appropriate tags
+> * Verify events with known patterns
+> * Clean up shared resources using `Spark4CompatUtils.cleanupAnyExistingSession()`
+
+---
+
+## 📦 Dependency Management for Testing
+
+### Gradle Test Dependencies
+
+From `integration/spark/app/build.gradle`:
 
 ```gradle
 dependencies {
-    // Core testing frameworks
-    testImplementation(platform("org.junit:junit-bom:${junit5Version}"))
     testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation("org.junit.jupiter:junit-jupiter-params")
-    testImplementation("org.assertj:assertj-core:${assertjVersion}")
-    testImplementation("org.mockito:mockito-core:${mockitoVersion}")
-    testImplementation("org.mockito:mockito-inline:${mockitoVersion}")
-    testImplementation("org.mockito:mockito-junit-jupiter:${mockitoVersion}")
-    
-    // Container testing
-    testImplementation(platform("org.testcontainers:testcontainers-bom:${testcontainersVersion}"))
-    testImplementation("org.testcontainers:junit-jupiter")
-    testImplementation("org.testcontainers:postgresql")
+    testImplementation("org.assertj:assertj-core")
+    testImplementation("org.mockito:mockito-core")
     testImplementation("org.testcontainers:mockserver")
-    testImplementation("org.testcontainers:kafka")
-    
-    // Spark dependencies
-    testImplementation("org.apache.spark:spark-core_${scala}:${spark}")
-    testImplementation("org.apache.spark:spark-sql_${scala}:${spark}")
-    testImplementation("org.apache.spark:spark-hive_${scala}:${spark}")
-    testImplementation("org.apache.spark:spark-sql-kafka-0-10_${scala}:${spark}")
-    
-    // Other utilities
     testImplementation("org.awaitility:awaitility:4.3.0")
-    testImplementation("org.postgresql:postgresql:${postgresqlVersion}")
-    testImplementation("commons-beanutils:commons-beanutils:1.10.1")
+    testImplementation("org.apache.spark:spark-sql_${scala}:${spark}")
+    // ... more dependencies ...
 }
 ```
 
-### Conditional Dependencies
+### 🔄 Version-Specific Logic
 
-The build system uses functions to conditionally apply dependencies based on the Spark and Scala versions:
-
-```gradle
-addDependenciesToConfiguration(testSourceSet.implementationConfigurationName, spark, scala, this.&deltaDependencies)
-addDependenciesToConfiguration(testSourceSet.implementationConfigurationName, spark, scala, this.&bigqueryDependencies)
-addDependenciesToConfiguration(testSourceSet.implementationConfigurationName, spark, scala, this.&icebergDependencies)
-```
-
-These functions define version-specific dependencies:
+Dependencies adapt based on Spark version:
 
 ```gradle
 List<Dependency> bigqueryDependencies(String spark, String scala) {
-    final def registry = [
-        "3.2.4": [
-            dependencies.create("com.google.cloud.spark:spark-3.2-bigquery:${bigqueryVersion}",
-                { transitive = false }
-            )
-        ],
-        "3.3.4": [
-            dependencies.create("com.google.cloud.spark:spark-3.3-bigquery:${bigqueryVersion}",
-                { transitive = false }
-            )
-        ],
-        // ... more versions ...
-    ];
-    
-    return registry.get(spark, [])
+    return [
+        "3.3.4": [dependencies.create("com.google.cloud.spark:spark-3.3-bigquery:${bigqueryVersion}")]
+    ].get(spark, [])
 }
 ```
 
-### Test Tasks
-
-Different test tasks are defined for different types of tests:
+### 🧪 Test Tasks
 
 ```gradle
 tasks.named("test", Test.class) {
     useJUnitPlatform {
         excludeTags("integration-test")
-        if (!hasDeltaDependencies(spark, scala)) {
-            excludeTags("delta")
-        }
-        if (!hasIcebergDependencies(spark, scala)) {
-            excludeTags("iceberg")
-        }
     }
-    systemProperties = testSystemProperties(spark, scala)
 }
 
 tasks.register("integrationTest", Test.class) {
     useJUnitPlatform {
         includeTags("integration-test")
-        excludeTags("configurable-integration-test")
-        excludeTags("aws")
-        excludeTags("databricks")
-        // ... more configuration ...
-    }
-}
-
-tasks.register("databricksIntegrationTest", Test) {
-    useJUnitPlatform {
-        includeTags("databricks")
-    }
-}
-
-tasks.register("awsIntegrationTest", Test) {
-    useJUnitPlatform {
-        includeTags("aws")
     }
 }
 ```
 
-### System Properties
+> 💡 Use `@Tag("delta")`, `@Tag("databricks")`, etc. to selectively run tests.
 
-System properties are passed to tests to configure the test environment:
+---
 
-```gradle
-def testSystemProperties = { String spark, String scala ->
-    Map<String, String> openLineageSystemProperties = System.getProperties().findAll { key, value -> key.toString().startsWith("openlineage") }
-    openLineageSystemProperties + [
-        "spark.version": spark,
-        "scala.binary.version": scala,
-        "derby.system.home.base": derbySystemHomeBase.get().asFile.absolutePath,
-        "spark.sql.warehouse.dir": sparkWarehouseDir.get().asFile.absolutePath,
-        // ... more properties ...
-    ]
-}
-```
+## ✍️ Creating New Tests
 
-## Creating New Tests
+### 🧭 Pick the Right Type
 
-When creating new tests for the OpenLineage Spark integration, follow these guidelines:
+| Test Type        | Purpose                               |
+| ---------------- | ------------------------------------- |
+| Unit Test        | Validate internal logic or utilities  |
+| Integration Test | Verify behavior with external systems |
+| Column-Level     | Verify column lineage and transforms  |
 
-### 1. Choose the Right Test Type
-
-- **Unit Tests**: For testing individual components in isolation
-- **Integration Tests**: For testing integration with external systems
-- **Column-Level Lineage Tests**: For testing column-level lineage extraction
-
-### 2. Use Appropriate Tags
-
-Tag your tests to control when they run:
+### 🏷 Use Tags & Conditions
 
 ```java
-@Tag("integration-test")  // For general integration tests
-@Tag("aws")               // For AWS-specific tests
-@Tag("databricks")        // For Databricks-specific tests
-@Tag("delta")             // For Delta Lake tests
-@Tag("iceberg")           // For Iceberg tests
-```
-
-### 3. Handle Conditional Execution
-
-Use conditional annotations to control when tests run:
-
-```java
+@Tag("integration-test")
 @EnabledIfSystemProperty(named = "spark.version", matches = "3.3.4")
-@EnabledIfEnvironmentVariable(named = "CI", matches = "true")
 ```
 
-### 4. Set Up Test Environment
-
-Follow the pattern of existing tests:
+### 🧪 Setup Spark & MockServer
 
 ```java
-@BeforeAll
-public static void beforeAll() {
-    // Set up shared resources
-}
-
 @BeforeEach
-public void beforeEach() {
-    // Set up per-test resources
-    spark = SparkSession.builder()
-        // Configure Spark session
-        .getOrCreate();
+public void setup() {
+    spark = SparkSession.builder().getOrCreate();
+    MockServerUtils.configureStandardExpectation(mockServer);
 }
 ```
 
-### 5. Verify OpenLineage Events
-
-Use the `MockServerUtils` to verify events:
+### ✅ Verify Events
 
 ```java
-// Capture events
 List<RunEvent> events = MockServerUtils.getEventsEmitted(mockServer);
-
-// Verify events match expected patterns
-verifyEvents(mockServer, replacements, "expectedStart.json", "expectedEnd.json");
-
-// Make specific assertions
-assertThat(events.stream()
-    .map(event -> event.getJob().getName())
-    .filter(name -> name.contains("specific-pattern"))
-    .collect(Collectors.toList()))
-.isNotEmpty();
+assertThat(events).isNotEmpty();
 ```
 
-### 6. Clean Up Resources
-
-Always clean up resources in teardown methods:
+### 🧹 Clean Up
 
 ```java
 @AfterEach
-public void afterEach() {
-    // Clean up per-test resources
-}
-
-@AfterAll
-public static void afterAll() {
-    // Clean up shared resources
-    Spark4CompatUtils.cleanupAnyExistingSession();
+public void teardown() {
+    spark.stop();
     MockServerUtils.stopMockServer(mockServer);
 }
 ```
 
-### 7. Handle Different Spark Versions
-
-Be aware of version-specific behavior:
+### ⚠️ Handle Version Differences
 
 ```java
 if (SparkContainerProperties.SPARK_VERSION.startsWith("3.")) {
-    // Spark 3.x specific code
-} else if (SparkContainerProperties.SPARK_VERSION.startsWith("4.")) {
-    // Spark 4.x specific code
+    // Spark 3.x specific behavior
 }
 ```
 
-## Conclusion
+---
 
-The OpenLineage Spark integration uses a comprehensive testing framework to ensure compatibility across different Spark and Scala versions, as well as integration with various data sources. By following the patterns established in existing tests, you can create effective tests for new features or bug fixes.
+## ✅ Conclusion
 
-The test suite is organized to allow selective execution of tests based on tags and conditions, making it possible to run only the relevant tests for a specific change. The dependency management system ensures that tests have access to the appropriate libraries for the Spark and Scala versions being tested.
+The OpenLineage Spark test framework supports robust validation across Spark versions and external systems. It enables:
+
+* **Tag-based test targeting** (`@Tag("aws")`, `@Tag("databricks")`, etc.)
+* **Reusable test setup via base classes**
+* **Version-aware dependency resolution**
+* **MockServer verification of lineage output**
+
+> 🔁 **Tip**: Use `./gradlew integrationTest -Dtags=google-cloud` to run scoped tests.
+
+By following these structured patterns, contributors can confidently validate features, ensure integration correctness, and add new tests effectively.
+
+---
