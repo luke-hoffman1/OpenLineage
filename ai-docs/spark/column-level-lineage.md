@@ -229,6 +229,71 @@ Column-level lineage is only supported in Spark 3.x, not in Spark 2.x. The share
 
 The Spark 3-specific implementation is in the `spark3` module, while the shared module contains the version-agnostic code. This separation allows for clean handling of version-specific differences.
 
+### 5.1 Spark 3-Specific Implementation Details
+
+The Spark 3-specific implementation of `ColumnLevelLineageUtils` is responsible for orchestrating the column lineage extraction process. Here's a detailed look at how it works:
+
+1. The main method `buildColumnLineageDatasetFacet` takes a Spark event, OpenLineage context, and schema facet as input and returns an Optional column lineage dataset facet.
+
+2. It first checks if the query execution is present and has an optimized plan, and if the schema facet is not null. If any of these conditions are not met, it returns an empty Optional.
+
+3. It creates a `ColumnLevelLineageContext` with:
+   - The Spark event
+   - The OpenLineage context
+   - A new `ColumnLevelLineageBuilder` initialized with the schema facet
+   - A `DatasetNamespaceCombinedResolver` for resolving dataset namespaces
+
+4. It gets the adjusted logical plan from the query execution, handling the special case of `SaveIntoDataSourceCommand`.
+
+5. It collects output fields using `OutputFieldsCollector.collect()`.
+
+6. It collects inputs and expression dependencies using `collectInputsAndExpressionDependencies()`, which:
+   - Calls `ExpressionDependencyCollector.collect()` to collect dependencies between expressions
+   - Calls `InputFieldsCollector.collect()` to collect input fields
+   - Handles dataset caching by checking for `InMemoryRelation` nodes in the plan
+
+7. It builds the column lineage dataset facet and returns it if it has fields.
+
+### 5.2 Handling Different Data Source Types
+
+The `InputFieldsCollector` handles different data source types in different ways:
+
+#### DataSource V1 Inputs (e.g., JDBC, CSV)
+
+For DataSource V1 inputs like JDBC relations, the `InputFieldsCollector` extracts dataset identifiers directly from the relation:
+
+1. For `JDBCRelation`, it:
+   - Extracts SQL metadata using `JdbcSparkUtils.extractQueryFromSpark`
+   - Gets the JDBC URL and properties
+   - Maps the input tables from the SQL metadata to dataset identifiers using `JdbcDatasetUtils.getDatasetIdentifier`
+   - Resolves the namespace using the context's namespace resolver
+
+2. For `HadoopFsRelation` (used for CSV, Parquet, etc.), it:
+   - Extracts paths from the relation's location
+   - Converts each path to a dataset identifier using `PathUtils.fromURI`
+
+#### DataSource V2 Sinks (e.g., BigQuery)
+
+For DataSource V2 sinks like BigQuery, the `InputFieldsCollector` delegates to `DataSourceV2RelationDatasetExtractor`:
+
+1. For `DataSourceV2Relation`, it calls `DataSourceV2RelationDatasetExtractor.getDatasetIdentifierExtended`, which:
+   - Checks if the dataset has extension lineage using `ExtensionDataSourceV2Utils.hasExtensionLineage`
+   - Checks if the dataset has query extension lineage using `ExtensionDataSourceV2Utils.hasQueryExtensionLineage`
+   - If it has query extension lineage, it parses the SQL query from the table properties and extracts input tables
+   - Otherwise, it tries to get the dataset identifier from the catalog and identifier
+
+### 5.3 Potential Issues with Mixed Data Source Types
+
+When a DataSource V1 input (like JDBC/CSV) is passed to a DataSource V2 sink (like BigQuery), there can be issues with the column lineage context not being properly transferred between them:
+
+1. **Context Loss**: The context (specifically, the column lineage information) might not be properly passed between the DataSource V1 input and the DataSource V2 sink.
+
+2. **Expression ID Mapping**: The expression IDs from the DataSource V1 input might not be properly mapped to the expression IDs in the DataSource V2 sink.
+
+3. **Query Parsing**: If the DataSource V2 sink uses query extension lineage, it parses the SQL query from the table properties. If this query doesn't properly reference the DataSource V1 input, the column lineage information might be lost.
+
+These issues can result in the columnLineage facet not being populated correctly when a DataSource V1 input is used with a DataSource V2 sink.
+
 ## 6. Examples
 
 ### 6.1 Simple SQL Query
@@ -299,10 +364,70 @@ The column lineage facet is attached to output datasets in the OpenLineage event
 
 The facet is then included in the final OpenLineage event, providing detailed information about how columns in the output dataset are derived from columns in the input datasets.
 
-## 8. Conclusion
+## 8. Troubleshooting Common Issues
+
+### 8.1 DataSource V1 to DataSource V2 Lineage Issues
+
+When using a DataSource V1 input (like JDBC or CSV) with a DataSource V2 sink (like BigQuery), you might encounter issues with column lineage not being properly captured. Here are some common problems and potential solutions:
+
+#### Symptoms:
+- The columnLineage facet is missing or empty in the OpenLineage event
+- Column lineage is captured for some data sources but not for mixed DataSource V1 to DataSource V2 flows
+
+#### Potential Causes:
+
+1. **Context Loss**: The column lineage context is not being properly passed between the DataSource V1 input and the DataSource V2 sink.
+
+2. **Expression ID Mapping**: The expression IDs from the DataSource V1 input are not being properly mapped to the expression IDs in the DataSource V2 sink.
+
+3. **Query Parsing**: If the DataSource V2 sink uses query extension lineage, it might not be properly parsing the SQL query that references the DataSource V1 input.
+
+#### Solutions:
+
+1. **Check Query Properties**: If using a DataSource V2 sink with query extension lineage, ensure that the query in the table properties correctly references the DataSource V1 input.
+
+2. **Verify Input Collection**: Debug the `InputFieldsCollector.collect()` method to ensure it's correctly extracting dataset identifiers from the DataSource V1 input.
+
+3. **Trace Expression Dependencies**: Use logging to trace how expression dependencies are collected and mapped between the DataSource V1 input and the DataSource V2 sink.
+
+4. **Examine Logical Plan**: Analyze the logical plan to understand how the DataSource V1 input is connected to the DataSource V2 sink and ensure that the connection is properly captured by the column lineage extraction process.
+
+### 8.2 Example: JDBC to BigQuery
+
+For a flow that reads from a JDBC source and writes to BigQuery:
+
+```sql
+-- Read from JDBC source
+val jdbcDF = spark.read
+  .format("jdbc")
+  .option("url", "jdbc:postgresql://localhost:5432/mydb")
+  .option("dbtable", "users")
+  .option("user", "username")
+  .option("password", "password")
+  .load()
+
+-- Write to BigQuery
+jdbcDF.write
+  .format("bigquery")
+  .option("table", "mydataset.users")
+  .save()
+```
+
+The column lineage extraction process should:
+
+1. Extract dataset identifiers from the JDBC relation using `InputFieldsCollector.extractDatasetIdentifier(context, relation)`
+2. Extract dataset identifiers from the BigQuery relation using `DataSourceV2RelationDatasetExtractor.getDatasetIdentifierExtended(context, relation)`
+3. Collect expression dependencies between the JDBC input and BigQuery output using `ExpressionDependencyCollector.collect(context, plan)`
+4. Map the expression IDs from the JDBC input to the expression IDs in the BigQuery output
+
+If the columnLineage facet is not being populated, check if the expression IDs are being properly mapped between the JDBC input and BigQuery output, and if the context is being properly passed between them.
+
+## 9. Conclusion
 
 Column-level lineage in the OpenLineage Spark integration provides valuable insights into how data flows between columns in different datasets. It's implemented as a modular system that analyzes Spark's logical plan to extract dependencies between expressions and map them to input and output columns.
 
 The architecture separates concerns into different components, making it easier to understand and maintain. The process flow is well-defined, from initialization to facet integration, ensuring that column lineage information is accurately captured and included in OpenLineage events.
 
 By understanding how column-level lineage works in the OpenLineage Spark integration, users can better track and analyze data lineage at a fine-grained level, improving data governance and quality.
+
+When working with mixed data source types, particularly DataSource V1 inputs and DataSource V2 sinks, special attention should be paid to how the column lineage context is passed between them to ensure accurate lineage information.
